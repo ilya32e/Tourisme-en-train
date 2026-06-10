@@ -1,0 +1,17 @@
+# Secrets — ne jamais versionner (voir guide 03)
+.env
+.env.*
+
+# Caches / gros fichiers (régénérables) — voir guide 04
+cache/
+*.parquet
+*.html
+
+# Dépendances
+__pycache__/
+node_modules/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db

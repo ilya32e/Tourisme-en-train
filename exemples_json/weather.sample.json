@@ -1,0 +1,6 @@
+{
+  "_note": "Extrait réel Open-Meteo (météo arrivée). Régénérer: relancer escapades.py",
+  "date": "2026-06-09",
+  "weather_code": 95,
+  "temp_max": 18.7
+}

@@ -1,0 +1,8 @@
+{
+  "_note": "Extrait réel /journeys Paris Gare de Lyon -> Lyon Part-Dieu (champs utiles). Régénérer: python escapades.py",
+  "duration_min": 128,
+  "co2_g": 936,
+  "mode": "TGV INOUI",
+  "from": "stop_area:SNCF:87686006",
+  "to": "stop_area:SNCF:87723197"
+}
