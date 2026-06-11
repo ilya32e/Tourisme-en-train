@@ -117,7 +117,7 @@ Flux temps réel sans clé (`proxy.transport.data.gouv.fr/resource/`) : `sncf-gt
 - [x] Si « meilleur = bas » (ex. CO₂) → inverser avec `1 - x_norm`
 - [x] **Pondérer + additionner + trier**
 - [x] **Justifier les pondérations** en soutenance (logique explicable, pas formule magique)
-- [x] Assumer les limites (min-max sensible aux valeurs extrêmes)
+- [x] Assumer les limites → **min-max winsorisé** (bornes p10–p90 dès 8 destinations) : une valeur extrême n'étire plus l'échelle
 - [x] Montrer le **détail par critère**, pas que le score final
 
 ---

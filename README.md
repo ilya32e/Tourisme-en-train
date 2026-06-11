@@ -3,7 +3,9 @@
 EFREI Paris · Learning XP – Tourisme en train · 8–12 juin 2026
 
 **Équipe :** Zbiri Salah Eddine / Mouradi Iliasse / Haddam Rym / Touati Manal
+
 **Utilisateur cible :** grand public / touristes **sans voiture**
+
 **Angle :** tourisme en train, activités accessibles **à pied**
 
 ---
@@ -33,11 +35,11 @@ Paramètres saisis par l'utilisateur :
 | Source                         | Accès        | Rôle                                                                                                                          |
 | ------------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | API SNCF `/places`           | clé `.env` | résolution des gares (id, coordonnées)                                                                                       |
-| API SNCF `/journeys`         | clé `.env` | durée +`co2_emission` du trajet                                                                                             |
-| API SNCF `/isochrones`       | clé `.env` | zone atteignable en ≤ X h →**destinations candidates dynamiques** (croisée avec le référentiel des gares)            |
-| Open-Meteo                     | sans clé     | météo à l'arrivée, à la date de l'escapade                                                                               |
+| API SNCF `/journeys`         | clé `.env` | durée +`co2_emission` du trajet, départ 8 h le jour choisi                                                                 |
+| API SNCF `/isochrones`       | clé `.env` | zone atteignable en ≤ X h →**destinations candidates dynamiques** (croisée avec le référentiel des gares)           |
+| Open-Meteo                     | sans clé     | météo à l'arrivée, à la date de l'escapade                                                                                |
 | DATAtourisme                   | clé `.env` | **POIs labellisés tourisme** (mieux typés ; source principale)                                                         |
-| OpenStreetMap / Overpass       | sans clé     | POIs à pied (repli si pas de clé DATAtourisme)                                                                               |
+| OpenStreetMap / Overpass       | sans clé     | POIs à pied (repli si pas de clé DATAtourisme) + densité touristique des gares candidates                                   |
 | OpenAgenda                     | clé `.env` | **événements à venir** par ville (info, hors score)                                                                   |
 | `frequentation-gares` (SNCF) | sans clé     | **affluence** (voyageurs/an → critère « calme »)                                                                     |
 | ADEME Impact CO2               | clé `.env` | CO₂ voiture officiel →**CO₂ économisé vs voiture** (repli : facteur SNCF ~89 g/km)                                  |
@@ -76,7 +78,9 @@ les grandes villes « patrimoine ») :
 
 ## Logique de scoring (guide 06 : min-max winsorisé + pondération justifiée)
 
-Score composite par destination, chaque variable sur [0, 1] :
+Score composite par destination, chaque variable normalisée sur [0, 1]
+(min-max **winsorisé** : bornes aux percentiles 10/90 dès 8 destinations, pour
+qu'une ville atypique n'étire pas l'échelle) :
 
 | Critère                 | Poids | Sens                                                              |
 | ------------------------ | ----- | ----------------------------------------------------------------- |
@@ -88,14 +92,15 @@ Score composite par destination, chaque variable sur [0, 1] :
 
 On affiche le **détail par critère**, pas seulement le score (honnêteté + soutenance).
 
-Exemple de sortie réelle (depuis Paris Gare de Lyon · culture/gastronomie/patrimoine · 1 km) :
+Exemple de sortie réelle (depuis Paris Gare de Lyon · culture/gastronomie/patrimoine · 1 km · samedi 13/06/2026) :
 
 ```
-#  Destination     Durée  Activ.  Affin.  Score
-1  Lille Europe     1h31    412    0.82    0.77
-2  Dijon            1h39    198    0.71    0.70
-3  Avignon Centre   3h40    263    0.70    0.70
-🚆 Cap sur Lille — affinité 82%, 1h31, calme 0.86.
+#  Destination               Durée  Activ.  Affin.  Score
+1  Annecy                     3h43     12    0.98   0.85
+2  Avignon Centre             4h24     19    0.89   0.84
+3  Montpellier Saint-Roch     4h38     16    0.85   0.78
+🚆 Cap sur Annecy : plutôt ensoleillé, 3h43 de train — affinité 98%,
+   ~61 kg CO₂ économisés vs voiture, 88 événements à venir.
 ```
 
 ## Preuve d'usage de l'API (vraie requête, pas une simulation)
@@ -127,7 +132,7 @@ ADEME_KEY=votre_cle                 # optionnel (CO₂ vs voiture officiel)
 python src/escapade/build_gares.py   # -> data/gares_france.parquet (2782 gares)
 
 # Interface web interactive (recommandée)
-streamlit run app.py             # http://localhost:8502
+streamlit run app.py             # http://localhost:8501
 
 # Ligne de commande
 python src/escapade/recommender.py "Paris Gare de Lyon" --interets culture,gastronomie,patrimoine --marche 1000
@@ -142,7 +147,8 @@ python src/escapade/recommender.py "Lille Flandres" --max 180 --top 5 --date 202
 app.py                         interface Streamlit
 src/escapade/
   recommender.py               moteur (collecte · score · CLI)
-  isochrone.py                 destinations dynamiques (gares à ≤ X h, /isochrones)
+  isochrone.py                 destinations dynamiques (gares à ≤ X h, /isochrones,
+                               classées par densité de POIs touristiques)
   sncf.py                      accès API SNCF (cache + mode dégradé)
   ml.py                        ML : affinité cosinus + profils de villes (k-means)
   paths.py                     chemins projet + chargement .env

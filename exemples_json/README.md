@@ -5,8 +5,12 @@ extraits **réels** (champs utiles seulement) de réponses d'API mises en cache.
 
 | Fichier | Source | Régénérer |
 |---|---|---|
-| `journey_paris_lyon.sample.json` | API SNCF `/journeys` | `python escapades.py` |
-| `weather.sample.json` | Open-Meteo `/forecast` | `python escapades.py` |
+| `journey_paris_lyon.sample.json` | API SNCF `/journeys` | `python src/escapade/recommender.py` |
+| `weather.sample.json` | Open-Meteo `/forecast` | `python src/escapade/recommender.py` |
+
+Les clés du cache incluent désormais la **date de l'escapade**
+(ex. `journey_<origine>_<dest>_AAAAMMJJ.json`, `weather_<ville>_AAAAMMJJ.json`) :
+trajets et météo sont calculés pour le jour choisi, pas pour « maintenant ».
 
 ## Mécanisme réel
 Le cache complet vit dans `cache/` (ignoré par Git car volumineux). À chaque appel
