@@ -102,6 +102,52 @@ def _fetch(query):
     raise last_err
 
 
+# Cache partagé des densités touristiques : {"lat,lon": nb_pois}. Incrémental :
+# seuls les points jamais comptés partent en requête (groupée, 1 seul appel).
+DENSITY_CACHE = CACHE / "poi_density.json"
+
+
+def tourist_density(points, radius=1000):
+    """Nb de POIs touristiques (tourism/historic, OSM) autour de chaque point.
+
+    Proxy de l'intérêt touristique d'une gare, utilisé pour pondérer la
+    sélection des destinations candidates (la fréquentation seule favorise les
+    gares pendulaires). Retourne une liste alignée sur `points`, ou None si
+    Overpass est indisponible (→ l'appelant garde son tri de repli).
+    """
+    try:
+        known = json.loads(DENSITY_CACHE.read_text(encoding="utf-8")) \
+            if DENSITY_CACHE.exists() else {}
+    except Exception:
+        known = {}
+    keys = [f"{lat:.4f},{lon:.4f}" for lat, lon in points]
+    missing = [(k, p) for k, p in zip(keys, points) if k not in known]
+    if missing:
+        # une statement « union ; out count » par point : Overpass renvoie les
+        # comptages dans l'ordre, le tout en un seul appel réseau
+        parts = []
+        for _, (lat, lon) in missing:
+            parts.append(
+                f"(node(around:{radius},{lat},{lon})[tourism];"
+                f"way(around:{radius},{lat},{lon})[tourism];"
+                f"node(around:{radius},{lat},{lon})[historic];);out count;"
+            )
+        try:
+            raw = _fetch(f"[out:json][timeout:55];{''.join(parts)}")
+            counts = [int(el["tags"]["total"]) for el in raw.get("elements", [])
+                      if el.get("type") == "count"]
+            if len(counts) != len(missing):
+                return None
+        except Exception as error:
+            print(f"   ⚠️  Densité POI indisponible ({error}) → tri par fréquentation.")
+            return None
+        for (k, _), c in zip(missing, counts):
+            known[k] = c
+        CACHE.mkdir(exist_ok=True)
+        DENSITY_CACHE.write_text(json.dumps(known), encoding="utf-8")
+    return [known[k] for k in keys]
+
+
 def get_pois(lat, lon, radius=1000, cache_name=None):
     """Retourne ({counts, names}, source) ; source = API / CACHE / VIDE."""
     cache_file = CACHE / f"poi_{cache_name}.json" if cache_name else None

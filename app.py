@@ -15,11 +15,13 @@ os.environ.setdefault("RECO_CACHE_FIRST", "1")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
+from datetime import date, timedelta
+
 import pandas as pd
 import pydeck as pdk
 import streamlit as st
 
-from escapade.recommender import collect, score_rows
+from escapade.recommender import METEO_HORIZON_JOURS, collect, next_saturday, score_rows
 from escapade.sources import poi_osm as poi
 
 st.set_page_config(page_title="Escapade sans voiture", page_icon="🚆", layout="wide")
@@ -46,9 +48,9 @@ def station_names():
 
 
 @st.cache_data(show_spinner=False)
-def run_reco(origin, interests, radius, max_min):
+def run_reco(origin, interests, radius, max_min, day):
     # max_min génère aussi les candidates (gares à ≤ max_min via isochrone SNCF)
-    origin_name, origin_coord, rows = collect(origin, list(interests), radius, max_min)
+    origin_name, origin_coord, rows = collect(origin, list(interests), radius, max_min, day)
     if max_min:
         rows = [r for r in rows if r["minutes"] <= max_min]
     classement = score_rows(rows) if rows else []
@@ -74,6 +76,13 @@ with st.sidebar:
         "Aptitude à la marche", options=[500, 1000, 1500, 2000], value=1000,
         format_func=lambda x: f"{x} m",
     )
+    # météo et horaires de train calculés pour ce jour (horizon prévision ~16 j)
+    day = st.date_input(
+        "Date de l'escapade", value=next_saturday(),
+        min_value=date.today(),
+        max_value=date.today() + timedelta(days=METEO_HORIZON_JOURS),
+        format="DD/MM/YYYY",
+    )
     max_min = st.slider("Durée de trajet max (min)", 60, 360, 240, step=30)
     go = st.button("Rechercher", type="primary", use_container_width=True)
 
@@ -83,7 +92,7 @@ if not interests:
 
 with st.spinner("Calcul des destinations (trajets, météo, activités à pied)…"):
     origin_name, origin_coord, classement = run_reco(
-        origin, tuple(interests), radius, max_min
+        origin, tuple(interests), radius, max_min, day
     )
 
 if not classement:
@@ -93,12 +102,15 @@ if not classement:
 best = classement[0]
 ville = best["ville"].split("(")[0].strip()
 
-c1, c2, c3 = st.columns(3)
+c1, c2, c3, c4 = st.columns(4)
 c1.metric("🥇 Recommandation", ville, f"{best['affinite']:.0%} d'affinité")
 _eco = best.get("co2_economie")
 c2.metric("🚆 Trajet", f"{best['minutes'] // 60}h{best['minutes'] % 60:02d}",
           f"−{_eco:.0f} kg CO₂ vs voiture" if _eco else f"{best['co2']:.0f} g CO₂")
-c3.metric("🎯 Affinité (ML)", f"{best['affinite']:.0%}", f"{best['activites_raw']} activités")
+c3.metric(f"🌤️ Météo le {day:%d/%m}",
+          f"{best['temp']:.0f}°C" if best.get("temp") is not None else "—",
+          best["meteo"], delta_color="off")
+c4.metric("🎯 Affinité (ML)", f"{best['affinite']:.0%}", f"{best['activites_raw']} activités")
 
 # Profil de ville appris (k-means) + alternatives au même ADN d'activités
 if best.get("profil") and best["profil"] != "—":

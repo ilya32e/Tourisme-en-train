@@ -3,10 +3,12 @@ Destinations dynamiques : gares atteignables en ≤ X heures (isochrone SNCF).
 
 Remplace la liste fixe de destinations : l'API /isochrones donne la zone
 atteignable en train depuis la gare de départ ; on garde les gares du
-référentiel (data/gares_france.parquet) situées dedans, puis on retient les
-N plus fréquentées (export open data frequentation-gares, 1 appel mis en
-cache), suffisamment éloignées entre elles — et de l'origine — pour varier
-les propositions. Tout échec (API, parquet absent…) retourne None → le
+référentiel (data/gares_france.parquet) situées dedans, présélectionnées par
+fréquentation (export open data frequentation-gares, 1 appel mis en cache) et
+suffisamment éloignées entre elles — et de l'origine — pour varier les
+propositions, puis classées par densité de POIs touristiques (OSM, 1 appel
+groupé mis en cache) : une mesure de l'intérêt touristique, pas un simple
+proxy d'affluence. Tout échec (API, parquet absent…) retourne None → le
 moteur replie sur la liste fixe (mode dégradé, comme partout ailleurs).
 """
 import math
@@ -14,6 +16,7 @@ from datetime import date
 
 from escapade.paths import DATA
 from escapade.sncf import api_get, http_get_json
+from escapade.sources import poi_osm
 
 N_DEFAULT = 15        # nb de candidates : chaque destination coûte ~5 appels API
 MIN_KM_ORIGINE = 25   # écarte la banlieue immédiate (escapade, pas trajet du quotidien)
@@ -77,7 +80,8 @@ def _frequentations():
         return {}
 
 
-def reachable_destinations(origin_id, origin_slug, origin_coord, max_minutes, n=N_DEFAULT):
+def reachable_destinations(origin_id, origin_slug, origin_coord, max_minutes,
+                           n=N_DEFAULT, day=None):
     """Gares candidates à ≤ max_minutes de train depuis l'origine.
 
     Retourne une liste de {id, name, coord} (les champs qu'aurait donnés
@@ -87,14 +91,15 @@ def reachable_destinations(origin_id, origin_slug, origin_coord, max_minutes, n=
     parquet = DATA / "gares_france.parquet"
     if not parquet.exists() or None in origin_coord:
         return None
+    day = day or date.today()
     try:
         import pandas as pd
 
         data, _ = api_get(
             "/isochrones",
             {"from": origin_id, "boundary_duration[]": max_minutes * 60,
-             "datetime": f"{date.today():%Y%m%d}T080000"},  # départ le matin
-            f"iso_{origin_slug}_{max_minutes}",
+             "datetime": f"{day:%Y%m%d}T080000"},  # départ le matin du jour choisi
+            f"iso_{origin_slug}_{max_minutes}_{day:%Y%m%d}",
         )
         isos = data.get("isochrones", [])
         gj = isos[0].get("geojson", {}) if isos else {}
@@ -130,15 +135,24 @@ def reachable_destinations(origin_id, origin_slug, origin_coord, max_minutes, n=
 
         # grandes gares (A) d'abord — la fréquentation seule ferait remonter la
         # banlieue pendulaire (Melun, Cergy…) avant Reims ou Rouen — puis les
-        # régionales (B) en complément ; 1 gare max par zone de MIN_KM_ENTRE km
+        # régionales (B) en complément ; 1 gare max par zone de MIN_KM_ENTRE km.
+        # On présélectionne 3n gares espacées…
         candidates.sort(key=lambda c: (c["segment"] != "A", -c["freq"]))
         kept = []
         for c in candidates:
             if all(_haversine_km(c["coord"], k["coord"]) >= MIN_KM_ENTRE for k in kept):
                 kept.append(c)
-            if len(kept) == n:
+            if len(kept) == 3 * n:
                 break
-        return kept or None
+
+        # …puis on retient les n plus denses en POIs touristiques (mesure de
+        # l'intérêt réel ; si Overpass échoue, on garde le tri par fréquentation)
+        densities = poi_osm.tourist_density([k["coord"] for k in kept])
+        if densities:
+            for k, d in zip(kept, densities):
+                k["poi"] = d
+            kept.sort(key=lambda c: (-c["poi"], -c["freq"]))
+        return kept[:n] or None
 
     except (Exception, SystemExit) as error:  # api_get sans cache lève SystemExit
         print(f"   ⚠️  Isochrone indisponible ({error}) → repli sur la liste fixe.")

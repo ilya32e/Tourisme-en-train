@@ -24,6 +24,7 @@ import statistics
 import sys
 import time
 import urllib.parse
+from datetime import date, timedelta
 from pathlib import Path
 
 # permet de lancer ce fichier en script (python src/escapade/recommender.py)
@@ -79,6 +80,16 @@ def slug(name):
     return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
 
+# Horizon de prévision Open-Meteo : ~16 jours
+METEO_HORIZON_JOURS = 15
+
+
+def next_saturday(today=None):
+    """Prochain samedi (aujourd'hui si on est samedi) : date d'escapade par défaut."""
+    today = today or date.today()
+    return today + timedelta(days=(5 - today.weekday()) % 7)
+
+
 # Facteur voiture thermique (par voyageur) — moyenne du dataset SNCF/ADEME
 # emission-co2-perimetre-complet. Sert à estimer le CO₂ économisé vs voiture.
 CAR_CO2_G_PER_KM = 89
@@ -104,11 +115,15 @@ def co2_saved_kg(origin_coord, dest_coord, train_co2_g, cache_name=None):
     return max(0.0, car_kg - train_co2_g / 1000)
 
 
-def journey_stats(from_id, to_id, cache_name):
+def journey_stats(from_id, to_id, cache_name, day):
+    # départ le matin de la date choisie (et non « maintenant ») ; le temps réel
+    # n'existe que pour aujourd'hui, sinon horaires théoriques
     data, _ = api_get(
         "/journeys",
         {"from": from_id, "to": to_id,
-         "disable_geojson": "true", "data_freshness": "realtime"},
+         "datetime": f"{day:%Y%m%d}T080000", "datetime_represents": "departure",
+         "disable_geojson": "true",
+         "data_freshness": "realtime" if day == date.today() else "base_schedule"},
         cache_name,
     )
     journeys = data.get("journeys", [])
@@ -121,14 +136,17 @@ def journey_stats(from_id, to_id, cache_name):
     return minutes, co2
 
 
-def weather_at(coord, cache_name):
+def weather_at(coord, cache_name, day):
     lat, lon = coord
     if lat is None or lon is None:
         return None, None, "coordonnées inconnues"
+    # prévision pour la date de l'escapade (au-delà de l'horizon : dernier jour prévu)
+    day = min(day, date.today() + timedelta(days=METEO_HORIZON_JOURS))
     url = (
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={lat}&longitude={lon}"
-        "&daily=weather_code,temperature_2m_max&timezone=Europe%2FParis&forecast_days=1"
+        "&daily=weather_code,temperature_2m_max&timezone=Europe%2FParis"
+        f"&start_date={day}&end_date={day}"
     )
     data, _ = http_get_json(url, cache_name)
     daily = data.get("daily", {})
@@ -159,8 +177,10 @@ def frequentation(uic, cache_name):
     return results[0].get("total_voyageurs_2024") if results else None
 
 
-def collect(origin, interests, radius, max_minutes=None):
-    print(f"→ Origine : {origin}  ·  intérêts : {', '.join(interests)}  ·  marche : {radius} m")
+def collect(origin, interests, radius, max_minutes=None, day=None):
+    day = day or next_saturday()
+    print(f"→ Origine : {origin}  ·  intérêts : {', '.join(interests)}  ·  "
+          f"marche : {radius} m  ·  date : {day:%d/%m/%Y}")
     origin_id, origin_name, origin_coord, _ = resolve_stop_area(
         origin, f"place_{slug(origin)}"
     )
@@ -170,7 +190,7 @@ def collect(origin, interests, radius, max_minutes=None):
     dests = None
     if max_minutes:
         dests = isochrone.reachable_destinations(
-            origin_id, slug(origin), origin_coord, max_minutes
+            origin_id, slug(origin), origin_coord, max_minutes, day=day
         )
     if dests:
         print(f"   {len(dests)} gares candidates à ≤ {max_minutes} min "
@@ -190,9 +210,16 @@ def collect(origin, interests, radius, max_minutes=None):
     for d in dests:
         dest_id, dest_name, coord = d["id"], d["name"], d["coord"]
         s = d.get("slug") or slug(dest_name)
-        # clé incluant l'origine : un trajet dépend du couple (départ, arrivée)
-        minutes, co2 = journey_stats(origin_id, dest_id, f"journey_{slug(origin)}_{s}")
-        soleil, temp, meteo = weather_at(coord, f"weather_{s}")
+        # clés incluant l'origine et la date : un trajet dépend du couple
+        # (départ, arrivée) et du jour ; la météo, du jour
+        try:
+            minutes, co2 = journey_stats(
+                origin_id, dest_id, f"journey_{slug(origin)}_{s}_{day:%Y%m%d}", day
+            )
+            soleil, temp, meteo = weather_at(coord, f"weather_{s}_{day:%Y%m%d}", day)
+        except (Exception, SystemExit) as error:  # api_get sans cache lève SystemExit
+            print(f"   (ignoré : {dest_name} — {error})")
+            continue
         if minutes is None or co2 is None or soleil is None:
             print(f"   (ignoré : données incomplètes pour {dest_name})")
             continue
@@ -232,9 +259,16 @@ def collect(origin, interests, radius, max_minutes=None):
 # Scoring composite — méthode guide 06 (normalisation min-max + pondération)
 # --------------------------------------------------------------------------- #
 def minmax(values):
+    """Min-max winsorisé : bornes aux percentiles 10/90 (dès 8 valeurs) pour
+    qu'une ville atypique n'étire pas l'échelle ; en deçà, min-max classique."""
     lo, hi = min(values), max(values)
+    if len(values) >= 8:
+        deciles = statistics.quantiles(values, n=10)
+        lo, hi = deciles[0], deciles[-1]
     span = hi - lo
-    return [(v - lo) / span if span else 0.5 for v in values]
+    if not span:
+        return [0.5 for _ in values]
+    return [min(1.0, max(0.0, (v - lo) / span)) for v in values]
 
 
 def score_rows(rows):
@@ -305,6 +339,11 @@ def parse_args():
         "--top", type=int, default=None, metavar="N",
         help="n'afficher que les N meilleures destinations",
     )
+    parser.add_argument(
+        "--date", default=None, metavar="AAAA-MM-JJ",
+        help="date de l'escapade : météo et horaires de train à cette date "
+             "(défaut : samedi prochain ; météo limitée à ~16 jours de prévision)",
+    )
     return parser.parse_args()
 
 
@@ -315,7 +354,16 @@ def main():
     if not interests:
         raise SystemExit(f"Intérêts invalides. Choix : {', '.join(POI.CATEGORIES)}")
 
-    _, _, rows = collect(args.origin, interests, args.marche, args.max)
+    day = None
+    if args.date:
+        try:
+            day = date.fromisoformat(args.date)
+        except ValueError:
+            raise SystemExit(f"Date invalide « {args.date} » (format AAAA-MM-JJ).")
+        if day < date.today():
+            raise SystemExit("La date de l'escapade est déjà passée.")
+
+    _, _, rows = collect(args.origin, interests, args.marche, args.max, day)
     if not rows:
         raise SystemExit("Aucune destination exploitable.")
 

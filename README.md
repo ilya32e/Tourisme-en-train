@@ -25,7 +25,8 @@ Paramètres saisis par l'utilisateur :
 
 - **gare de départ** · **centres d'intérêt** (nature, culture, plage,
   patrimoine, gastronomie) · **aptitude à la marche** (rayon 500 m → 2 km) ·
-  **durée de trajet max**.
+  **durée de trajet max** · **date de l'escapade** (défaut : samedi prochain ;
+  météo et horaires de train calculés pour ce jour).
 
 ## Données utilisées
 
@@ -34,7 +35,7 @@ Paramètres saisis par l'utilisateur :
 | API SNCF `/places`           | clé `.env` | résolution des gares (id, coordonnées)                                                                                       |
 | API SNCF `/journeys`         | clé `.env` | durée +`co2_emission` du trajet                                                                                             |
 | API SNCF `/isochrones`       | clé `.env` | zone atteignable en ≤ X h →**destinations candidates dynamiques** (croisée avec le référentiel des gares)            |
-| Open-Meteo                     | sans clé     | météo à l'arrivée                                                                                                          |
+| Open-Meteo                     | sans clé     | météo à l'arrivée, à la date de l'escapade                                                                               |
 | DATAtourisme                   | clé `.env` | **POIs labellisés tourisme** (mieux typés ; source principale)                                                         |
 | OpenStreetMap / Overpass       | sans clé     | POIs à pied (repli si pas de clé DATAtourisme)                                                                               |
 | OpenAgenda                     | clé `.env` | **événements à venir** par ville (info, hors score)                                                                   |
@@ -73,7 +74,7 @@ les grandes villes « patrimoine ») :
   propose des alternatives au **même ADN d'activités**, triées par similarité
   cosinus — affichées dans l'app et la CLI.
 
-## Logique de scoring (guide 06 : min-max + pondération justifiée)
+## Logique de scoring (guide 06 : min-max winsorisé + pondération justifiée)
 
 Score composite par destination, chaque variable sur [0, 1] :
 
@@ -131,7 +132,8 @@ streamlit run app.py             # http://localhost:8502
 # Ligne de commande
 python src/escapade/recommender.py "Paris Gare de Lyon" --interets culture,gastronomie,patrimoine --marche 1000
 # --max génère aussi les destinations : gares à ≤ 3 h (isochrone SNCF) ; sans --max, liste fixe de 15 villes
-python src/escapade/recommender.py "Lille Flandres" --max 180 --top 5
+# --date : météo et horaires de train pour ce jour (défaut : samedi prochain)
+python src/escapade/recommender.py "Lille Flandres" --max 180 --top 5 --date 2026-06-20
 ```
 
 ## Structure
@@ -160,14 +162,20 @@ cache (rapide, hors-ligne). `.env` et `cache/` sont dans le `.gitignore` ; des
 
 ## Limites connues
 
-- **Sélection des destinations candidates = heuristique** : dans l'isochrone,
-  on garde les gares les plus fréquentées (segment DRG A puis B) — un proxy de
-  l'intérêt touristique, pas une mesure ; piste : pondérer par la densité de
-  POIs. Sans durée max (`--max`), repli sur la liste fixe de 15 villes.
-- Météo = **prévision du jour**, pas la date exacte du week-end visé.
-- `/journeys` part de l'heure courante ; depuis une gare précise, un changement
-  dans Paris (ex. vers Montparnasse) peut allonger le trajet.
+- **Sélection des destinations candidates** : dans l'isochrone, les gares
+  (segments DRG A/B) sont présélectionnées par fréquentation puis **classées
+  par densité de POIs touristiques** (OSM, 1 requête groupée mise en cache) —
+  une mesure de l'intérêt touristique, plus un simple proxy d'affluence. Si
+  Overpass échoue, repli sur le tri par fréquentation ; sans durée max
+  (`--max`), repli sur la liste fixe de 15 villes.
+- Météo = **prévision pour la date de l'escapade** (`--date`, défaut : samedi
+  prochain) ; l'horizon Open-Meteo est d'~16 jours — au-delà, on sert le
+  dernier jour prévisible.
+- `/journeys` est interrogé pour **8 h du matin de la date choisie** (horaires
+  théoriques si la date est future). Reste vrai : depuis une gare précise, un
+  changement dans Paris (ex. vers Montparnasse) peut allonger le trajet.
 - Comptage POIs Overpass = **richesse approximative** (pas de tri qualitatif) ;
   l'instance publique Overpass peut être lente → cache local indispensable.
-- Normalisation **min-max sensible aux valeurs extrêmes** (une ville atypique
-  étire l'échelle) et peu significative s'il reste peu de destinations.
+- Normalisation **min-max winsorisée** (bornes p10–p90 dès 8 destinations) :
+  une ville atypique n'étire plus l'échelle ; reste peu significative s'il
+  demeure très peu de destinations.
