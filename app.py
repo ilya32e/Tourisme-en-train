@@ -99,6 +99,12 @@ c2.metric("🚆 Trajet", f"{best['minutes'] // 60}h{best['minutes'] % 60:02d}",
           f"−{_eco:.0f} kg CO₂ vs voiture" if _eco else f"{best['co2']:.0f} g CO₂")
 c3.metric("🎯 Affinité (ML)", f"{best['affinite']:.0%}", f"{best['activites_raw']} activités")
 
+# Profil de ville appris (k-means) + alternatives au même ADN d'activités
+if best.get("profil") and best["profil"] != "—":
+    sims = " · ".join(f"**{v}** ({s:.0%})" for v, s in best.get("similaires", []))
+    st.info(f"Profil de ville : **{best['profil']}**"
+            + (f" — même profil : {sims}" if sims else ""), icon="🧭")
+
 col_map, col_rank = st.columns([3, 2])
 
 with col_map:
@@ -129,6 +135,7 @@ with col_rank:
     st.subheader("Classement")
     table = [{
         "Ville": r["ville"].split("(")[0].strip(),
+        "Profil": r.get("profil", ""),
         "Durée": f"{r['minutes'] // 60}h{r['minutes'] % 60:02d}",
         "Affinité": f"{r['affinite']:.0%}",
         "Activités": r["activites_raw"],

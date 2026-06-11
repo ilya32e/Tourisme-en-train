@@ -44,10 +44,10 @@ Paramètres saisis par l'utilisateur :
 
 Repli open data (mode dégradé) : `horaires-sncf` (ODbL).
 
-## Machine Learning — recommandation content-based
+## Machine Learning — deux briques explicables ([ml.py](src/escapade/ml.py))
 
-Le critère « activités » n'est pas un simple comptage : c'est une **affinité
-apprise par similarité cosinus** ([reco_ml.py](reco_ml.py)).
+**1. Affinité content-based (similarité cosinus).** Le critère « activités »
+n'est pas un simple comptage :
 
 - chaque destination = **vecteur de son profil d'activités** (nb de POIs par
   catégorie : plage, culture, patrimoine, nature, gastronomie) ;
@@ -55,9 +55,23 @@ apprise par similarité cosinus** ([reco_ml.py](reco_ml.py)).
 - **affinité = cosinus(profil, intérêts)** ∈ [0, 1] → mesure à quel point la ville
   correspond aux envies.
 
-C'est du **filtrage content-based** (recommander system), explicable et sans boîte
+C'est du **filtrage content-based** (recommender system), explicable et sans boîte
 noire : on sait toujours *pourquoi* une ville est proposée (ses POIs collent aux
-catégories demandées).
+catégories demandées). Pas de phase d'entraînement ici : la personnalisation
+vient du vecteur utilisateur.
+
+**2. Profils de villes (k-means, scikit-learn) — modèle appris.** Clustering
+**non supervisé** des destinations sur leur **mix d'activités** (proportions de
+POIs par catégorie, pas volumes : une petite ville très « patrimoine » rejoint
+les grandes villes « patrimoine ») :
+
+- **k choisi par score de silhouette** (2–5), `random_state` fixé → reproductible ;
+- chaque cluster est **nommé d'après les catégories dominantes de son centroïde**
+  (ex. « 🏛️ Patrimoine & culture ») → le modèle reste lisible ;
+- alimente la fonctionnalité **« villes au même profil »** : si la 1re
+  recommandation ne convient pas (déjà visitée, trop loin ce week-end), on
+  propose des alternatives au **même ADN d'activités**, triées par similarité
+  cosinus — affichées dans l'app, la CLI et le rapport HTML.
 
 ## Logique de scoring (guide 06 : min-max + pondération justifiée)
 
@@ -126,7 +140,7 @@ app.py                         interface Streamlit
 src/escapade/
   recommender.py               moteur (collecte · score · CLI · rapport HTML)
   sncf.py                      accès API SNCF (cache + mode dégradé)
-  ml.py                        affinité content-based (similarité cosinus)
+  ml.py                        ML : affinité cosinus + profils de villes (k-means)
   paths.py                     chemins projet + chargement .env
   build_gares.py               génère data/gares_france.parquet (gares-de-voyageurs)
   sources/                     connecteurs de données

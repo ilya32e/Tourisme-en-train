@@ -241,6 +241,20 @@ def score_rows(rows):
             POIDS["activites"] * an + POIDS["soleil"] * sn + POIDS["calme"] * kn
             + POIDS["duree"] * dn + POIDS["co2"] * cn
         )
+
+    # ML 2 : profils de villes (k-means sur le mix d'activités). Chaque ville
+    # reçoit son profil + ses « villes similaires » (même cluster, triées par
+    # similarité cosinus) → alternatives au même ADN que la recommandation.
+    labels, noms = ml.city_profiles([r["poi_counts"] for r in rows])
+    for i, (r, lab) in enumerate(zip(rows, labels)):
+        r["profil"] = noms[lab]
+        peers = [
+            (rows[j]["ville"].split("(")[0].strip(),
+             ml.similarity(r["poi_counts"], rows[j]["poi_counts"]))
+            for j in range(len(rows)) if j != i and labels[j] == lab
+        ]
+        r["similaires"] = sorted(peers, key=lambda p: p[1], reverse=True)[:3]
+
     return sorted(rows, key=lambda r: r["score"], reverse=True)
 
 
@@ -279,12 +293,14 @@ def write_html(origin_name, origin_coord, classement, path="escapade_report.html
         foule = f"{r['frequentation'] // 1000}k voy./an" if r.get("frequentation") else "—"
         eco = f" &nbsp;|&nbsp; 🌍 −{r['co2_economie']:.0f} kg vs voiture" if r.get("co2_economie") else ""
         evt = f" &nbsp;|&nbsp; 🎉 {r['events']} évén." if r.get("events") else ""
+        prof = (f" &nbsp;|&nbsp; {html.escape(r['profil'])}"
+                if r.get("profil") and r["profil"] != "—" else "")
         cards.append(f"""
       <div class="card">
         <div class="rank">{medal}</div>
         <div class="body">
           <div class="city">{html.escape(ville)} <span class="wx">{emoji_for(r['meteo'])}</span></div>
-          <div class="meta">🎯 {r['affinite']:.0%} d'affinité &nbsp;|&nbsp; 🚶 {r['activites_raw']} activités &nbsp;|&nbsp; 🚆 {h}h{m:02d}{eco}{evt}</div>
+          <div class="meta">🎯 {r['affinite']:.0%} d'affinité &nbsp;|&nbsp; 🚶 {r['activites_raw']} activités &nbsp;|&nbsp; 🚆 {h}h{m:02d}{eco}{evt}{prof}</div>
           <div class="bar"><span style="width:{r['score']*100:.0f}%"></span></div>
           <div class="sub">score {r['score']:.2f} — affinité {r['n_activites']:.2f} · soleil {r['n_soleil']:.2f} · calme {r['n_calme']:.2f} · durée {r['n_duree']:.2f} · CO₂ {r['n_co2']:.2f} &nbsp;·&nbsp; foule {foule}</div>
         </div>
@@ -450,6 +466,12 @@ def main():
         f"{best['minutes'] // 60}h{best['minutes'] % 60:02d} de train, "
         f"{best['co2']:.0f} g CO₂ — et tout à pied ! (affinité {best['affinite']:.0%}{eco}{ev})"
     )
+    # Profil de ville appris (k-means) + alternatives au même ADN
+    if best.get("profil") and best["profil"] != "—":
+        sims = " · ".join(f"{v} ({s:.2f})" for v, s in best.get("similaires", []))
+        print(f"   Profil de ville : {best['profil']}"
+              + (f"  —  même profil : {sims}" if sims else ""))
+
     # Les activités à pied du gagnant, par centre d'intérêt
     print("   Activités à pied :")
     for cat in interests:
