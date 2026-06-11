@@ -3,7 +3,7 @@
 EFREI Paris · Learning XP – Tourisme en train · 8–12 juin 2026
 *(d'après `templates/readme_projet` — livrable + trace Portfolio « Gérer une base documentaire »)*
 
-**Équipe :** … 
+**Équipe :** Zbiri Salah Eddine
 **Utilisateur cible :** grand public / touristes **sans voiture**
 **Angle :** tourisme en train, activités accessibles **à pied**
 
@@ -40,8 +40,9 @@ Paramètres saisis par l'utilisateur :
 | OpenAgenda                     | clé `.env` | **événements à venir** par ville (info, hors score) |
 | `frequentation-gares` (SNCF) | sans clé     | **affluence** (voyageurs/an → critère « calme ») |
 | ADEME Impact CO2 | clé `.env` | CO₂ voiture officiel → **CO₂ économisé vs voiture** (repli : facteur SNCF ~89 g/km) |
+| `gares-de-voyageurs` (SNCF) | sans clé | référentiel des **2782 gares** ([build_gares.py](src/escapade/build_gares.py)) → sélecteur « gare de départ » complet |
 
-Repli open data (mode dégradé) : `gares-de-voyageurs`, `horaires-sncf` (ODbL).
+Repli open data (mode dégradé) : `horaires-sncf` (ODbL).
 
 ## Machine Learning — recommandation content-based
 
@@ -107,6 +108,9 @@ ADEME_KEY=votre_cle                 # optionnel (CO₂ vs voiture officiel)
 ```
 
 ```bash
+# (Optionnel) référentiel complet des gares pour le sélecteur de départ
+python src/escapade/build_gares.py   # -> data/gares_france.parquet (2782 gares)
+
 # Interface web interactive (recommandée)
 streamlit run app.py             # http://localhost:8502
 
@@ -124,6 +128,7 @@ src/escapade/
   sncf.py                      accès API SNCF (cache + mode dégradé)
   ml.py                        affinité content-based (similarité cosinus)
   paths.py                     chemins projet + chargement .env
+  build_gares.py               génère data/gares_france.parquet (gares-de-voyageurs)
   sources/                     connecteurs de données
     poi_datatourisme.py · poi_osm.py · events.py · ademe.py
 data/        gares_france.parquet          docs/   livrables (cadrage, checklist)
