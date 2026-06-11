@@ -47,7 +47,8 @@ def station_names():
 
 @st.cache_data(show_spinner=False)
 def run_reco(origin, interests, radius, max_min):
-    origin_name, origin_coord, rows = collect(origin, list(interests), radius)
+    # max_min génère aussi les candidates (gares à ≤ max_min via isochrone SNCF)
+    origin_name, origin_coord, rows = collect(origin, list(interests), radius, max_min)
     if max_min:
         rows = [r for r in rows if r["minutes"] <= max_min]
     classement = score_rows(rows) if rows else []

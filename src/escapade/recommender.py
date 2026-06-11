@@ -29,7 +29,7 @@ from pathlib import Path
 # permet de lancer ce fichier en script (python src/escapade/recommender.py)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from escapade import ml
+from escapade import isochrone, ml
 from escapade.paths import load_env
 from escapade.sncf import api_get, http_get_json, resolve_stop_area, WMO
 from escapade.sources import ademe, events, poi_datatourisme, poi_osm
@@ -159,18 +159,37 @@ def frequentation(uic, cache_name):
     return results[0].get("total_voyageurs_2024") if results else None
 
 
-def collect(origin, interests, radius):
+def collect(origin, interests, radius, max_minutes=None):
     print(f"→ Origine : {origin}  ·  intérêts : {', '.join(interests)}  ·  marche : {radius} m")
     origin_id, origin_name, origin_coord, _ = resolve_stop_area(
         origin, f"place_{slug(origin)}"
     )
 
+    # Destinations dynamiques : gares atteignables en ≤ max_minutes (isochrone
+    # SNCF × référentiel gares_france.parquet). Repli : liste fixe DESTINATIONS.
+    dests = None
+    if max_minutes:
+        dests = isochrone.reachable_destinations(
+            origin_id, slug(origin), origin_coord, max_minutes
+        )
+    if dests:
+        print(f"   {len(dests)} gares candidates à ≤ {max_minutes} min "
+              "(isochrone SNCF × référentiel)")
+    else:
+        if max_minutes:
+            print("   (destinations dynamiques indisponibles → liste fixe)")
+        dests = []
+        for nom in DESTINATIONS:
+            if slug(nom) == slug(origin):
+                continue  # ne pas se proposer sa propre gare de départ
+            did, dname, dcoord, _ = resolve_stop_area(nom, f"place_{slug(nom)}")
+            # slug du nom de requête : préserve les clés de cache historiques
+            dests.append({"id": did, "name": dname, "coord": dcoord, "slug": slug(nom)})
+
     rows = []
-    for dest in DESTINATIONS:
-        if slug(dest) == slug(origin):
-            continue  # ne pas se proposer sa propre gare de départ
-        s = slug(dest)
-        dest_id, dest_name, coord, _ = resolve_stop_area(dest, f"place_{s}")
+    for d in dests:
+        dest_id, dest_name, coord = d["id"], d["name"], d["coord"]
+        s = d.get("slug") or slug(dest_name)
         # clé incluant l'origine : un trajet dépend du couple (départ, arrivée)
         minutes, co2 = journey_stats(origin_id, dest_id, f"journey_{slug(origin)}_{s}")
         soleil, temp, meteo = weather_at(coord, f"weather_{s}")
@@ -278,7 +297,9 @@ def parse_args():
     )
     parser.add_argument(
         "--max", type=int, default=None, metavar="MIN",
-        help="durée de trajet maximale, en minutes (ex. --max 180 pour ≤ 3 h)",
+        help="durée de trajet maximale, en minutes (ex. --max 180 pour ≤ 3 h). "
+             "Génère aussi les destinations candidates : gares atteignables en "
+             "≤ MIN via l'isochrone SNCF (sans --max : liste fixe de 15 villes)",
     )
     parser.add_argument(
         "--top", type=int, default=None, metavar="N",
@@ -294,7 +315,7 @@ def main():
     if not interests:
         raise SystemExit(f"Intérêts invalides. Choix : {', '.join(POI.CATEGORIES)}")
 
-    _, _, rows = collect(args.origin, interests, args.marche)
+    _, _, rows = collect(args.origin, interests, args.marche, args.max)
     if not rows:
         raise SystemExit("Aucune destination exploitable.")
 

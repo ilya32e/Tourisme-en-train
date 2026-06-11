@@ -28,6 +28,11 @@ def main():
         {
             "name": gare["nom"],
             "uic": gare.get("codes_uic"),
+            # id Navitia direct : évite un appel /places par destination
+            "stop_area_id": (f"stop_area:SNCF:{gare['codes_uic']}"
+                             if gare.get("codes_uic") else None),
+            # segment DRG (A = grandes gares, B = régionales, C = haltes locales)
+            "segment_drg": gare.get("segment_drg"),
             "lat": gare.get("position_geographique", {}).get("lat"),
             "lon": gare.get("position_geographique", {}).get("lon"),
         }

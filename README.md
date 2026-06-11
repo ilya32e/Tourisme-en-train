@@ -33,6 +33,7 @@ Paramètres saisis par l'utilisateur :
 | ------------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | API SNCF `/places`           | clé `.env` | résolution des gares (id, coordonnées)                                                                                       |
 | API SNCF `/journeys`         | clé `.env` | durée +`co2_emission` du trajet                                                                                             |
+| API SNCF `/isochrones`       | clé `.env` | zone atteignable en ≤ X h →**destinations candidates dynamiques** (croisée avec le référentiel des gares)            |
 | Open-Meteo                     | sans clé     | météo à l'arrivée                                                                                                          |
 | DATAtourisme                   | clé `.env` | **POIs labellisés tourisme** (mieux typés ; source principale)                                                         |
 | OpenStreetMap / Overpass       | sans clé     | POIs à pied (repli si pas de clé DATAtourisme)                                                                               |
@@ -129,6 +130,7 @@ streamlit run app.py             # http://localhost:8502
 
 # Ligne de commande
 python src/escapade/recommender.py "Paris Gare de Lyon" --interets culture,gastronomie,patrimoine --marche 1000
+# --max génère aussi les destinations : gares à ≤ 3 h (isochrone SNCF) ; sans --max, liste fixe de 15 villes
 python src/escapade/recommender.py "Lille Flandres" --max 180 --top 5
 ```
 
@@ -138,6 +140,7 @@ python src/escapade/recommender.py "Lille Flandres" --max 180 --top 5
 app.py                         interface Streamlit
 src/escapade/
   recommender.py               moteur (collecte · score · CLI)
+  isochrone.py                 destinations dynamiques (gares à ≤ X h, /isochrones)
   sncf.py                      accès API SNCF (cache + mode dégradé)
   ml.py                        ML : affinité cosinus + profils de villes (k-means)
   paths.py                     chemins projet + chargement .env
@@ -157,8 +160,10 @@ cache (rapide, hors-ligne). `.env` et `cache/` sont dans le `.gitignore` ; des
 
 ## Limites connues
 
-- **Destinations codées en dur** (15 villes touristiques) ; piste : destinations
-  dynamiques (atteignables en ≤ X h).
+- **Sélection des destinations candidates = heuristique** : dans l'isochrone,
+  on garde les gares les plus fréquentées (segment DRG A puis B) — un proxy de
+  l'intérêt touristique, pas une mesure ; piste : pondérer par la densité de
+  POIs. Sans durée max (`--max`), repli sur la liste fixe de 15 villes.
 - Météo = **prévision du jour**, pas la date exacte du week-end visé.
 - `/journeys` part de l'heure courante ; depuis une gare précise, un changement
   dans Paris (ex. vers Montparnasse) peut allonger le trajet.
