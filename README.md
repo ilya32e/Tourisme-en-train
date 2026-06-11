@@ -1,9 +1,8 @@
 # Escapade sans voiture — « Où partir en train selon mes envies ? »
 
 EFREI Paris · Learning XP – Tourisme en train · 8–12 juin 2026
-*(d'après `templates/readme_projet` — livrable + trace Portfolio « Gérer une base documentaire »)*
 
-**Équipe :** Zbiri Salah Eddine
+**Équipe :** Zbiri Salah Eddine / Mouradi Iliasse / Haddam Rym / Touati Manal
 **Utilisateur cible :** grand public / touristes **sans voiture**
 **Angle :** tourisme en train, activités accessibles **à pied**
 
@@ -30,17 +29,17 @@ Paramètres saisis par l'utilisateur :
 
 ## Données utilisées
 
-| Source                         | Accès        | Rôle                                                      |
-| ------------------------------ | ------------- | ---------------------------------------------------------- |
-| API SNCF `/places`           | clé `.env` | résolution des gares (id, coordonnées)                   |
-| API SNCF `/journeys`         | clé `.env` | durée +`co2_emission` du trajet                         |
-| Open-Meteo                     | sans clé     | météo à l'arrivée                                      |
-| DATAtourisme                   | clé `.env` | **POIs labellisés tourisme** (mieux typés ; source principale) |
-| OpenStreetMap / Overpass       | sans clé     | POIs à pied (repli si pas de clé DATAtourisme)       |
-| OpenAgenda                     | clé `.env` | **événements à venir** par ville (info, hors score) |
-| `frequentation-gares` (SNCF) | sans clé     | **affluence** (voyageurs/an → critère « calme ») |
-| ADEME Impact CO2 | clé `.env` | CO₂ voiture officiel → **CO₂ économisé vs voiture** (repli : facteur SNCF ~89 g/km) |
-| `gares-de-voyageurs` (SNCF) | sans clé | référentiel des **2782 gares** ([build_gares.py](src/escapade/build_gares.py)) → sélecteur « gare de départ » complet |
+| Source                         | Accès        | Rôle                                                                                                                          |
+| ------------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| API SNCF `/places`           | clé `.env` | résolution des gares (id, coordonnées)                                                                                       |
+| API SNCF `/journeys`         | clé `.env` | durée +`co2_emission` du trajet                                                                                             |
+| Open-Meteo                     | sans clé     | météo à l'arrivée                                                                                                          |
+| DATAtourisme                   | clé `.env` | **POIs labellisés tourisme** (mieux typés ; source principale)                                                         |
+| OpenStreetMap / Overpass       | sans clé     | POIs à pied (repli si pas de clé DATAtourisme)                                                                               |
+| OpenAgenda                     | clé `.env` | **événements à venir** par ville (info, hors score)                                                                   |
+| `frequentation-gares` (SNCF) | sans clé     | **affluence** (voyageurs/an → critère « calme »)                                                                     |
+| ADEME Impact CO2               | clé `.env` | CO₂ voiture officiel →**CO₂ économisé vs voiture** (repli : facteur SNCF ~89 g/km)                                  |
+| `gares-de-voyageurs` (SNCF)  | sans clé     | référentiel des**2782 gares** ([build_gares.py](src/escapade/build_gares.py)) → sélecteur « gare de départ » complet |
 
 Repli open data (mode dégradé) : `horaires-sncf` (ODbL).
 
@@ -71,7 +70,7 @@ les grandes villes « patrimoine ») :
 - alimente la fonctionnalité **« villes au même profil »** : si la 1re
   recommandation ne convient pas (déjà visitée, trop loin ce week-end), on
   propose des alternatives au **même ADN d'activités**, triées par similarité
-  cosinus — affichées dans l'app, la CLI et le rapport HTML.
+  cosinus — affichées dans l'app et la CLI.
 
 ## Logique de scoring (guide 06 : min-max + pondération justifiée)
 
@@ -131,14 +130,14 @@ streamlit run app.py             # http://localhost:8502
 # Ligne de commande
 python src/escapade/recommender.py "Paris Gare de Lyon" --interets culture,gastronomie,patrimoine --marche 1000
 python src/escapade/recommender.py "Lille Flandres" --max 180 --top 5
-python src/escapade/recommender.py --html   # rapport visuel (carte Leaflet + cartes)
 ```
 
 ## Structure
+
 ```
 app.py                         interface Streamlit
 src/escapade/
-  recommender.py               moteur (collecte · score · CLI · rapport HTML)
+  recommender.py               moteur (collecte · score · CLI)
   sncf.py                      accès API SNCF (cache + mode dégradé)
   ml.py                        ML : affinité cosinus + profils de villes (k-means)
   paths.py                     chemins projet + chargement .env
@@ -167,4 +166,3 @@ cache (rapide, hors-ligne). `.env` et `cache/` sont dans le `.gitignore` ; des
   l'instance publique Overpass peut être lente → cache local indispensable.
 - Normalisation **min-max sensible aux valeurs extrêmes** (une ville atypique
   étire l'échelle) et peu significative s'il reste peu de destinations.
-

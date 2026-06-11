@@ -258,132 +258,6 @@ def score_rows(rows):
     return sorted(rows, key=lambda r: r["score"], reverse=True)
 
 
-# --------------------------------------------------------------------------- #
-def emoji_for(label):
-    low = label.lower()
-    if "orage" in low:
-        return "⛈️"
-    if "neige" in low:
-        return "🌨️"
-    if "pluie" in low or "averse" in low or "bruine" in low:
-        return "🌧️"
-    if "brouillard" in low:
-        return "🌫️"
-    if "couvert" in low:
-        return "☁️"
-    if "nuageux" in low:
-        return "⛅"
-    return "☀️"
-
-
-# --------------------------------------------------------------------------- #
-# Rapport visuel HTML (cartes + barres de score + carte Leaflet/OpenStreetMap)
-# --------------------------------------------------------------------------- #
-def write_html(origin_name, origin_coord, classement, path="escapade_report.html"):
-    import html
-    import json as _json
-    from datetime import date
-
-    cards, points = [], []
-    for rank, r in enumerate(classement, 1):
-        h, m = divmod(r["minutes"], 60)
-        ville = r["ville"].split("(")[0].strip()
-        temp = f"{r['temp']:.0f}°C" if r["temp"] is not None else "—"
-        medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(rank, f"{rank}.")
-        foule = f"{r['frequentation'] // 1000}k voy./an" if r.get("frequentation") else "—"
-        eco = f" &nbsp;|&nbsp; 🌍 −{r['co2_economie']:.0f} kg vs voiture" if r.get("co2_economie") else ""
-        evt = f" &nbsp;|&nbsp; 🎉 {r['events']} évén." if r.get("events") else ""
-        prof = (f" &nbsp;|&nbsp; {html.escape(r['profil'])}"
-                if r.get("profil") and r["profil"] != "—" else "")
-        cards.append(f"""
-      <div class="card">
-        <div class="rank">{medal}</div>
-        <div class="body">
-          <div class="city">{html.escape(ville)} <span class="wx">{emoji_for(r['meteo'])}</span></div>
-          <div class="meta">🎯 {r['affinite']:.0%} d'affinité &nbsp;|&nbsp; 🚶 {r['activites_raw']} activités &nbsp;|&nbsp; 🚆 {h}h{m:02d}{eco}{evt}{prof}</div>
-          <div class="bar"><span style="width:{r['score']*100:.0f}%"></span></div>
-          <div class="sub">score {r['score']:.2f} — affinité {r['n_activites']:.2f} · soleil {r['n_soleil']:.2f} · calme {r['n_calme']:.2f} · durée {r['n_duree']:.2f} · CO₂ {r['n_co2']:.2f} &nbsp;·&nbsp; foule {foule}</div>
-        </div>
-      </div>""")
-        lat, lon = r["coord"]
-        if lat is not None and lon is not None:
-            points.append({
-                "lat": lat, "lon": lon, "rank": rank, "ville": ville,
-                "meteo": r["meteo"], "emoji": emoji_for(r["meteo"]),
-                "duree": f"{h}h{m:02d}", "score": round(r["score"], 2),
-                "affinite": f"{r['affinite']:.0%}",
-            })
-
-    olat, olon = origin_coord
-    origin_js = (
-        _json.dumps({"lat": olat, "lon": olon, "name": origin_name.split("(")[0].strip()})
-        if olat is not None else "null"
-    )
-
-    doc = f"""<!doctype html>
-<html lang="fr"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Escapades en train depuis {html.escape(origin_name)}</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<style>
-  :root {{ --bg:#0f172a; --card:#1e293b; --accent:#38bdf8; --text:#e2e8f0; }}
-  * {{ box-sizing:border-box; }}
-  body {{ margin:0; font-family:system-ui,Segoe UI,sans-serif; background:var(--bg); color:var(--text); }}
-  header {{ padding:24px; text-align:center; }}
-  header h1 {{ margin:0 0 4px; font-size:1.5rem; }}
-  header p {{ margin:0; color:#94a3b8; }}
-  .wrap {{ max-width:1100px; margin:0 auto; padding:0 16px 40px; display:grid; grid-template-columns:1fr 1fr; gap:20px; }}
-  #map {{ height:520px; border-radius:14px; }}
-  .cards {{ display:flex; flex-direction:column; gap:12px; }}
-  .card {{ display:flex; gap:14px; background:var(--card); border-radius:14px; padding:14px 16px; align-items:center; }}
-  .rank {{ font-size:1.6rem; min-width:34px; text-align:center; }}
-  .city {{ font-weight:600; font-size:1.1rem; }}
-  .wx {{ font-size:1.2rem; }}
-  .meta {{ color:#94a3b8; font-size:.85rem; margin:3px 0 8px; }}
-  .bar {{ height:8px; background:#334155; border-radius:6px; overflow:hidden; }}
-  .bar span {{ display:block; height:100%; background:linear-gradient(90deg,#38bdf8,#22c55e); }}
-  .sub {{ color:#64748b; font-size:.72rem; margin-top:6px; }}
-  footer {{ text-align:center; color:#64748b; font-size:.8rem; padding:16px; }}
-  @media (max-width:820px) {{ .wrap {{ grid-template-columns:1fr; }} #map {{ height:360px; }} }}
-</style></head>
-<body>
-  <header>
-    <h1>🚆☀️ Escapades en train depuis {html.escape(origin_name.split("(")[0].strip())}</h1>
-    <p>Classées par affinité (ML) · météo · calme · durée · CO₂ — généré le {date.today():%d/%m/%Y}</p>
-  </header>
-  <div class="wrap">
-    <div class="cards">{''.join(cards)}</div>
-    <div id="map"></div>
-  </div>
-  <footer>Données : API SNCF (/journeys) + Open-Meteo · fond de carte © OpenStreetMap</footer>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-  const points = {_json.dumps(points, ensure_ascii=False)};
-  const origin = {origin_js};
-  const map = L.map('map');
-  L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
-    {{ maxZoom: 12, attribution: '© OpenStreetMap' }}).addTo(map);
-  const group = [];
-  if (origin) {{
-    const o = L.marker([origin.lat, origin.lon]).addTo(map)
-      .bindPopup('<b>Départ : ' + origin.name + '</b>');
-    group.push([origin.lat, origin.lon]);
-  }}
-  points.forEach(p => {{
-    L.marker([p.lat, p.lon]).addTo(map)
-      .bindPopup('<b>#' + p.rank + ' ' + p.ville + ' ' + p.emoji + '</b><br>' +
-                 '🎯 ' + p.affinite + ' · 🚆 ' + p.duree + ' · score ' + p.score);
-    group.push([p.lat, p.lon]);
-  }});
-  map.fitBounds(group, {{ padding: [40, 40] }});
-</script>
-</body></html>"""
-
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(doc)
-    return path
-
-
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Top des escapades en train selon la météo à l'arrivée."
@@ -410,10 +284,6 @@ def parse_args():
         "--top", type=int, default=None, metavar="N",
         help="n'afficher que les N meilleures destinations",
     )
-    parser.add_argument(
-        "--html", action="store_true",
-        help="générer un rapport visuel HTML (carte + cartes) et l'ouvrir",
-    )
     return parser.parse_args()
 
 
@@ -424,7 +294,7 @@ def main():
     if not interests:
         raise SystemExit(f"Intérêts invalides. Choix : {', '.join(POI.CATEGORIES)}")
 
-    origin_name, origin_coord, rows = collect(args.origin, interests, args.marche)
+    _, _, rows = collect(args.origin, interests, args.marche)
     if not rows:
         raise SystemExit("Aucune destination exploitable.")
 
@@ -484,15 +354,6 @@ def main():
         f"   détail → affinité {best['n_activites']:.2f} · soleil {best['n_soleil']:.2f} · "
         f"calme {best['n_calme']:.2f} · durée {best['n_duree']:.2f} · CO₂ {best['n_co2']:.2f}"
     )
-
-    if args.html:
-        import webbrowser
-        from pathlib import Path
-
-        path = write_html(origin_name, origin_coord, classement)
-        full = Path(path).resolve()
-        print(f"\n→ Rapport visuel : {full}")
-        webbrowser.open(full.as_uri())
 
 
 if __name__ == "__main__":
